@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منصة إبداع التعليمية</title>
+    
+    <!-- خطوط جوجل (كايرو) -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- مكتبة الأيقونات FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Cairo', 'sans-serif'] },
+                    colors: {
+                        primary: '#4f46e5',
+                        secondary: '#7c3aed',
+                        accent: '#0d9488',
+                        dark: '#0f172a'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        /* شريط التمرير الاحترافي */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3); }
+        .glass-dark { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1); }
+        .course-card:hover img { transform: scale(1.05); }
+    </style>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc, getDoc, updateDoc, deleteDoc, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDwSZe5sUglFRmXKbGLqtS6_5qO1r5wf9o",
+            authDomain: "ibda3-91fde.firebaseapp.com",
+            projectId: "ibda3-91fde",
+            storageBucket: "ibda3-91fde.firebasestorage.app",
+            messagingSenderId: "203097189746",
+            appId: "1:203097189746:web:af3a59c8eee851663881eb"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.auth = getAuth(app);
+        window.db = getFirestore(app);
+        window.firebaseAPI = {
+            onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+            collection, addDoc, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, limit
+        };
+    </script>
+</head>
+<body class="bg-slate-100 text-gray-800 antialiased selection:bg-primary selection:text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { 
+            onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+            doc, setDoc, getDoc, updateDoc, collection, addDoc, deleteDoc, onSnapshot, query, orderBy, limit 
+        } = window.firebaseAPI;
+
+        const getEmbedUrl = (url) => {
+            if (!url) return "";
+            try {
+                if (url.includes("youtube.com/watch")) {
+                    const v = new URL(url).searchParams.get("v");
+                    return v ? `https://www.youtube.com/embed/${v}` : url;
+                }
+                if (url.includes("youtu.be/")) {
+                    const v = url.split("youtu.be/")[1]?.split("?")[0];
+                    return v ? `https://www.youtube.com/embed/${v}` : url;
+                }
+            } catch (e) { return url; }
+            return url; 
+        };
+
+        // --- خوارزمية ضغط الصور لحل مشكلة الحفظ ---
+        const handleImageUpload = (e, callback) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    const MAX_WIDTH = 800; // تقليص العرض
+                    const MAX_HEIGHT = 800; // تقليص الطول
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                    } else {
+                        if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, width, height);
+                    // تحويلها لـ JPEG بجودة 70% لتقليل الحجم جداً
+                    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+                    callback(dataUrl);
+                };
+            };
+        };
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [role, setRole] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(window.auth, async (currentUser) => {
+                    setUser(currentUser);
+                    if (currentUser) {
+                        try {
+                            const userDoc = await getDoc(doc(window.db, "users", currentUser.uid));
+                            if (userDoc.exists()) setRole(userDoc.data().role);
+                            else setRole("student");
+                        } catch (error) { setRole("student"); }
+                    } else { setRole(null); }
+                    setLoading(false);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            if (loading) return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
+                    <i className="fa-solid fa-circle-notch fa-spin text-primary text-5xl mb-4"></i>
+                    <h2 className="text-xl font-bold text-gray-700 animate-pulse">جاري تحميل منصة إبداع...</h2>
+                </div>
+            );
+
+            if (!user) return <Login />;
+            if (role === "super_admin" || role === "admin") return <AdminDashboard user={user} role={role} />;
+            return <StudentDashboard user={user} />;
+        }
+
+        // --- صفحة الدخول الاحترافية ---
+        function Login() {
+            const [username, setUsername] = useState("");
+            const [password, setPassword] = useState("");
+            const [isRegister, setIsRegister] = useState(false);
+            const [error, setError] = useState("");
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError(""); setLoading(true);
+                const email = username.trim().toLowerCase() + "@ebdaa.com";
+
+                try {
+                    if (isRegister) {
+                        if (password.length < 6) { setError("كلمة المرور يجب ألا تقل عن 6 أحرف"); setLoading(false); return; }
+                        const userCredential = await createUserWithEmailAndPassword(window.auth, email, password);
+                        await setDoc(doc(window.db, "users", userCredential.user.uid), {
+                            username: username.trim(), role: "student", profileComplete: false, createdAt: new Date().toISOString()
+                        });
+                    } else {
+                        await signInWithEmailAndPassword(window.auth, email, password);
+                    }
+                } catch (err) { setError("بيانات الدخول غير صحيحة أو الحساب مسجل مسبقاً."); }
+                setLoading(false);
+            };
+
+            return (
+                <div className="flex min-h-screen bg-slate-100">
+                    <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-primary to-secondary text-white flex-col justify-center items-center p-12 relative overflow-hidden">
+                        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-white opacity-10 rounded-full blur-3xl"></div>
+                        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-accent opacity-20 rounded-full blur-3xl"></div>
+                        <img src="https://i.ibb.co/3m1R0Vb/image.png" className="w-32 h-32 object-cover rounded-full border-4 border-white/30 shadow-2xl mb-8 z-10" />
+                        <h1 className="text-5xl font-black mb-4 z-10 text-center leading-tight">بوابتك نحو التميز<br/>والإبداع</h1>
+                        <p className="text-lg text-indigo-100 z-10 text-center max-w-md">انضم إلى آلاف الطلاب في منصة إبداع التعليمية واستمتع بتجربة تعلم فريدة ومحتوى حصري.</p>
+                    </div>
+                    <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
+                        <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
+                            <div className="text-center mb-8">
+                                <img src="https://i.ibb.co/3m1R0Vb/image.png" className="w-16 h-16 object-cover rounded-full mx-auto mb-4 lg:hidden border-2 border-primary" />
+                                <h2 className="text-2xl font-bold text-gray-900">{isRegister ? "إنشاء حساب جديد" : "تسجيل الدخول"}</h2>
+                                <p className="text-sm text-gray-500 mt-1">مرحباً بك مجدداً في منصة إبداع</p>
+                            </div>
+
+                            {error && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-circle-exclamation"></i>{error}</div>}
+                            
+                            <form onSubmit={handleSubmit} className="space-y-5">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1.5"><i className="fa-solid fa-user text-gray-400 ml-1"></i> اسم المستخدم</label>
+                                    <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" placeholder="ادخل اسم المستخدم" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1.5"><i className="fa-solid fa-lock text-gray-400 ml-1"></i> كلمة المرور</label>
+                                    <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all" placeholder="••••••••" />
+                                </div>
+                                <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-primary to-secondary text-white py-3.5 rounded-xl font-bold text-lg hover:shadow-lg hover:opacity-90 transition-all transform hover:-translate-y-0.5">
+                                    {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : (isRegister ? "إنشاء الحساب" : "دخول المنصة")}
+                                </button>
+                            </form>
+                            <div className="mt-8 text-center">
+                                <button onClick={() => { setIsRegister(!isRegister); setError(""); }} className="text-sm font-bold text-primary hover:text-secondary transition-colors">
+                                    {isRegister ? "لديك حساب بالفعل؟ سجل دخولك" : "ليس لديك حساب؟ أنشئ حساباً جديداً"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- لوحة الإدارة الاحترافية ---
+        function AdminDashboard({ user, role }) {
+            const [activeSubTab, setActiveSubTab] = useState("courses");
+            const [courses, setCourses] = useState([]);
+            const [requests, setRequests] = useState([]);
+            const [students, setStudents] = useState([]);
+            const [promos, setPromos] = useState([]);
+            const [socialLinks, setSocialLinks] = useState([]);
+            
+            const [selectedCourseForLectures, setSelectedCourseForLectures] = useState(null);
+            const [viewingStudentModal, setViewingStudentModal] = useState(null);
+            const [chatPreselectedStudent, setChatPreselectedStudent] = useState(null); 
+
+            const [editingCourse, setEditingCourse] = useState(null);
+            const [editingPromo, setEditingPromo] = useState(null);
+            
+            const [title, setTitle] = useState("");
+            const [duration, setDuration] = useState("");
+            const [price, setPrice] = useState("");
+            const [targetAudience, setTargetAudience] = useState("");
+            const [instructor, setInstructor] = useState("");
+            const [desc, setDesc] = useState("");
+            const [previewVideoUrl, setPreviewVideoUrl] = useState("");
+            const [imageUrl, setImageUrl] = useState("");
+
+            const [promoTitle, setPromoTitle] = useState("");
+            const [promoType, setPromoType] = useState("image");
+            const [promoUrl, setPromoUrl] = useState("");
+            const [promoText, setPromoText] = useState("");
+
+            const [socialTitle, setSocialTitle] = useState("");
+            const [socialUrl, setSocialUrl] = useState("");
+            const [socialIconUrl, setSocialIconUrl] = useState("");
+
+            useEffect(() => {
+                const unsubCourses = onSnapshot(query(collection(window.db, "courses"), orderBy("createdAt", "desc")), (snap) => setCourses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubReq = onSnapshot(query(collection(window.db, "enrollmentRequests"), orderBy("createdAt", "desc")), (snap) => setRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubStudents = onSnapshot(collection(window.db, "users"), (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubPromos = onSnapshot(query(collection(window.db, "promos"), orderBy("createdAt", "desc")), (snap) => setPromos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubSocial = onSnapshot(query(collection(window.db, "socialLinks"), orderBy("createdAt", "asc")), (snap) => setSocialLinks(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+
+                return () => { unsubCourses(); unsubReq(); unsubStudents(); unsubPromos(); unsubSocial(); };
+            }, []);
+
+            const handleAddCourse = async (e) => {
+                e.preventDefault();
+                await addDoc(collection(window.db, "courses"), { title, duration, price, targetAudience, instructor, desc, previewVideoUrl, imageUrl, createdAt: new Date().toISOString() });
+                setTitle(""); setDuration(""); setPrice(""); setTargetAudience(""); setInstructor(""); setDesc(""); setPreviewVideoUrl(""); setImageUrl("");
+            };
+
+            const handleUpdateCourse = async (e) => {
+                e.preventDefault();
+                try {
+                    await updateDoc(doc(window.db, "courses", editingCourse.id), { 
+                        title: editingCourse.title, duration: editingCourse.duration, price: editingCourse.price, 
+                        targetAudience: editingCourse.targetAudience, instructor: editingCourse.instructor, 
+                        desc: editingCourse.desc, previewVideoUrl: editingCourse.previewVideoUrl || "", 
+                        imageUrl: editingCourse.imageUrl || ""
+                    });
+                    setEditingCourse(null);
+                    alert("تم حفظ التعديلات بنجاح!");
+                } catch(err) { alert("حدث خطأ. تأكد من حجم الصورة."); }
+            };
+
+            const handleDeleteCourse = async (id) => { if (confirm("هل أنت متأكد من حذف الدورة؟")) await deleteDoc(doc(window.db, "courses", id)); };
+
+            const handleAddPromo = async (e) => {
+                e.preventDefault();
+                await addDoc(collection(window.db, "promos"), { title: promoTitle, type: promoType, url: promoType !== 'text' ? promoUrl : '', text: promoType === 'text' ? promoText : '', createdAt: new Date().toISOString() });
+                setPromoTitle(""); setPromoUrl(""); setPromoText("");
+            };
+
+            const handleUpdatePromo = async (e) => {
+                e.preventDefault();
+                await updateDoc(doc(window.db, "promos", editingPromo.id), { ...editingPromo });
+                setEditingPromo(null);
+            };
+
+            const handleDeletePromo = async (id) => await deleteDoc(doc(window.db, "promos", id));
+
+            const handleAddSocialLink = async (e) => {
+                e.preventDefault();
+                if(!socialIconUrl) { alert("يرجى إرفاق الشعار"); return; }
+                await addDoc(collection(window.db, "socialLinks"), { title: socialTitle, url: socialUrl, iconUrl: socialIconUrl, createdAt: new Date().toISOString() });
+                setSocialTitle(""); setSocialUrl(""); setSocialIconUrl("");
+            };
+
+            const handleDeleteSocialLink = async (id) => await deleteDoc(doc(window.db, "socialLinks", id));
+
+            const handleApproveRequest = async (reqId, studentId, courseId) => {
+                await setDoc(doc(window.db, "users", studentId, "enrolledCourses", courseId), { enrolledAt: new Date().toISOString() });
+                await updateDoc(doc(window.db, "enrollmentRequests", reqId), { status: "approved" });
+            };
+
+            const handleDeleteRequest = async (reqId) => {
+                if (confirm("هل أنت متأكد من حذف هذا الطلب نهائياً؟")) { await deleteDoc(doc(window.db, "enrollmentRequests", reqId)); }
+            };
+
+            const handleOpenStudentProfile = async (studentId) => {
+                const docSnap = await getDoc(doc(window.db, "users", studentId));
+                if (docSnap.exists()) setViewingStudentModal(docSnap.data());
+            };
+
+            const pendingReqsCount = requests.filter(r => r.status === 'pending').length;
+
+            return (
+                <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50">
+                    {/* القائمة الجانبية للإدارة */}
+                    <aside className="w-full lg:w-72 bg-dark text-white flex flex-col shadow-2xl z-20">
+                        <div className="p-6 flex items-center gap-4 border-b border-gray-800">
+                            <img src="https://i.ibb.co/3m1R0Vb/image.png" className="w-14 h-14 object-cover rounded-full border-2 border-primary shadow-[0_0_15px_rgba(79,70,229,0.5)]" />
+                            <div>
+                                <h1 className="text-xl font-black tracking-wide">لوحة الإدارة</h1>
+                                <p className="text-xs text-gray-400 mt-1"><i className="fa-solid fa-crown text-yellow-500 ml-1"></i> منصة إبداع</p>
+                            </div>
+                        </div>
+                        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+                            <button onClick={() => { setActiveSubTab("courses"); setSelectedCourseForLectures(null); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold ${activeSubTab === 'courses' ? 'bg-primary shadow-lg shadow-primary/30 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                                <i className="fa-solid fa-book-open w-5 text-center"></i> إدارة الدورات
+                            </button>
+                            <button onClick={() => setActiveSubTab("promos")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold ${activeSubTab === 'promos' ? 'bg-primary shadow-lg shadow-primary/30 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                                <i className="fa-solid fa-bullhorn w-5 text-center"></i> العروض والإعلانات
+                            </button>
+                            <button onClick={() => setActiveSubTab("requests")} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all font-bold ${activeSubTab === 'requests' ? 'bg-primary shadow-lg shadow-primary/30 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                                <div className="flex items-center gap-3"><i className="fa-solid fa-users w-5 text-center"></i> طلبات الانضمام</div>
+                                {pendingReqsCount > 0 && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{pendingReqsCount}</span>}
+                            </button>
+                            <button onClick={() => setActiveSubTab("supportChats")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold ${activeSubTab === 'supportChats' ? 'bg-primary shadow-lg shadow-primary/30 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                                <i className="fa-solid fa-comments w-5 text-center"></i> محادثات الدعم
+                            </button>
+                            <button onClick={() => setActiveSubTab("social")} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold ${activeSubTab === 'social' ? 'bg-primary shadow-lg shadow-primary/30 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+                                <i className="fa-solid fa-hashtag w-5 text-center"></i> مواقع التواصل
+                            </button>
+                        </nav>
+                        <div className="p-4 border-t border-gray-800">
+                            <button onClick={() => signOut(window.auth)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 text-red-500 rounded-xl font-bold hover:bg-red-500 hover:text-white transition-all">
+                                <i className="fa-solid fa-arrow-right-from-bracket"></i> تسجيل الخروج
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* المحتوى الرئيسي */}
+                    <main className="flex-1 p-6 lg:p-10 overflow-y-auto w-full">
+                        {selectedCourseForLectures ? (
+                            <AdminLecturesManager course={selectedCourseForLectures} onBack={() => setSelectedCourseForLectures(null)} />
+                        ) : activeSubTab === 'courses' ? (
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                                <div className="xl:col-span-1">
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-6">
+                                        <h2 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-solid fa-plus-circle text-primary"></i> إضافة دورة جديدة</h2>
+                                        <form onSubmit={handleAddCourse} className="space-y-4">
+                                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">اسم الدورة</label><input type="text" required value={title} onChange={e => setTitle(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" /></div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">المدرب</label><input type="text" required value={instructor} onChange={e => setInstructor(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" /></div>
+                                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">السعر</label><input type="text" required value={price} onChange={e => setPrice(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" /></div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">المدة</label><input type="text" required value={duration} onChange={e => setDuration(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" /></div>
+                                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">الفئة المستهدفة</label><input type="text" required value={targetAudience} onChange={e => setTargetAudience(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" /></div>
+                                            </div>
+                                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">الوصف التفصيلي</label><textarea required value={desc} onChange={e => setDesc(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm h-24"></textarea></div>
+                                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">رابط يوتيوب التعريفي</label><input type="url" value={previewVideoUrl} onChange={e => setPreviewVideoUrl(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm" dir="ltr" /></div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 mb-1 block">صورة غلاف الدورة</label>
+                                                <div className="relative border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer">
+                                                    <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setImageUrl)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                                    {imageUrl ? <img src={imageUrl} className="h-20 mx-auto rounded shadow" /> : <div className="text-gray-400"><i className="fa-solid fa-cloud-arrow-up text-2xl mb-1"></i><p className="text-xs font-bold">اضغط أو اسحب الصورة هنا</p></div>}
+                                                </div>
+                                            </div>
+                                            <button type="submit" className="w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg">نشر الدورة <i className="fa-solid fa-rocket mr-1"></i></button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div className="xl:col-span-2">
+                                    <h2 className="text-2xl font-black text-gray-800 mb-6 border-b pb-2">الدورات الحالية ({courses.length})</h2>
+                                    <div className="grid sm:grid-cols-2 gap-6">
+                                        {courses.map(course => (
+                                            <div key={course.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col transition hover:shadow-md group">
+                                                <div className="h-40 bg-gray-200 relative overflow-hidden">
+                                                    {course.imageUrl ? <img src={course.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="flex items-center justify-center h-full text-gray-400"><i className="fa-solid fa-image text-3xl"></i></div>}
+                                                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur text-green-700 text-xs font-black px-3 py-1 rounded-full shadow">{course.price}</div>
+                                                </div>
+                                                <div className="p-5 flex flex-col flex-1">
+                                                    <h3 className="font-black text-lg text-gray-800 mb-1 line-clamp-1">{course.title}</h3>
+                                                    <p className="text-sm text-gray-500 mb-4"><i className="fa-solid fa-chalkboard-user mr-1"></i> {course.instructor}</p>
+                                                    <div className="mt-auto grid grid-cols-3 gap-2">
+                                                        <button onClick={() => setSelectedCourseForLectures(course)} className="col-span-3 bg-indigo-50 text-indigo-700 py-2 rounded-xl font-bold text-sm hover:bg-indigo-100 transition"><i className="fa-solid fa-video mr-1"></i> إدارة الحلقات</button>
+                                                        <button onClick={() => setEditingCourse(course)} className="col-span-1 flex items-center justify-center bg-gray-100 text-gray-700 py-2 rounded-xl font-bold text-sm hover:bg-gray-200 transition" title="تعديل"><i className="fa-solid fa-pen"></i></button>
+                                                        <button onClick={() => handleDeleteCourse(course.id)} className="col-span-2 flex items-center justify-center bg-red-50 text-red-600 py-2 rounded-xl font-bold text-sm hover:bg-red-100 transition"><i className="fa-solid fa-trash-can mr-1"></i> حذف الدورة</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : activeSubTab === 'promos' ? (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+                                    <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-solid fa-bullhorn text-secondary"></i> إضافة إعلان</h3>
+                                    <form onSubmit={handleAddPromo} className="space-y-4">
+                                        <input type="text" placeholder="عنوان الإعلان *" required value={promoTitle} onChange={e => setPromoTitle(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-secondary text-sm" />
+                                        <div>
+                                            <select value={promoType} onChange={e => setPromoType(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-secondary text-sm font-bold text-gray-600">
+                                                <option value="image">صورة إعلانية</option><option value="video">فيديو يوتيوب</option><option value="text">نص إعلاني</option>
+                                            </select>
+                                        </div>
+                                        {promoType === 'image' ? (
+                                            <div className="relative border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 cursor-pointer">
+                                                <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setPromoUrl)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                                {promoUrl ? <img src={promoUrl} className="h-24 mx-auto rounded shadow" /> : <div className="text-gray-400"><i className="fa-solid fa-image text-2xl mb-1"></i><p className="text-xs font-bold">اختر صورة</p></div>}
+                                            </div>
+                                        ) : promoType === 'video' ? (
+                                            <input type="url" placeholder="رابط يوتيوب" required value={promoUrl} onChange={e => setPromoUrl(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-secondary text-sm" dir="ltr" />
+                                        ) : (
+                                            <textarea placeholder="النص الإعلاني..." required value={promoText} onChange={e => setPromoText(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-secondary text-sm h-24"></textarea>
+                                        )}
+                                        <button type="submit" className="w-full bg-secondary text-white py-3 rounded-xl font-bold shadow-lg hover:bg-purple-700 transition">نشر الإعلان</button>
+                                    </form>
+                                </div>
+                                <div className="lg:col-span-2 space-y-4">
+                                    <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-2">الإعلانات المنشورة</h3>
+                                    {promos.map(p => (
+                                        <div key={p.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row gap-5 items-center justify-between">
+                                            <div className="flex items-center gap-4 w-full">
+                                                <div className="w-20 h-20 shrink-0 bg-gray-100 rounded-xl overflow-hidden flex items-center justify-center shadow-inner">
+                                                    {p.type === 'image' && p.url ? <img src={p.url} className="w-full h-full object-cover" /> : <i className={`fa-solid ${p.type === 'video' ? 'fa-play text-red-500' : 'fa-align-right text-gray-400'} text-2xl`}></i>}
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase">{p.type}</span>
+                                                        <h4 className="font-black text-gray-800">{p.title}</h4>
+                                                    </div>
+                                                    {p.type === 'text' ? <p className="text-gray-500 text-xs line-clamp-2">{p.text}</p> : <a href={p.url} target="_blank" className="text-xs text-secondary hover:underline line-clamp-1 block mt-1" dir="ltr">{p.url}</a>}
+                                                </div>
+                                            </div>
+                                            <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
+                                                <button onClick={() => setEditingPromo(p)} className="flex-1 sm:flex-none bg-gray-100 text-gray-700 px-4 py-2 rounded-xl font-bold text-xs hover:bg-gray-200 transition"><i className="fa-solid fa-pen"></i></button>
+                                                <button onClick={() => handleDeletePromo(p.id)} className="flex-1 sm:flex-none bg-red-50 text-red-600 px-4 py-2 rounded-xl font-bold text-xs hover:bg-red-100 transition"><i className="fa-solid fa-trash"></i></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : activeSubTab === 'requests' ? (
+                            <div className="bg-white p-6 lg:p-8 rounded-3xl shadow-sm border border-gray-100">
+                                <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-solid fa-users text-primary"></i> إدارة طلبات الانضمام</h2>
+                                {requests.length === 0 && <div className="text-center py-12 text-gray-400"><i className="fa-solid fa-check-circle text-5xl mb-3 opacity-50"></i><p className="font-bold">لا توجد طلبات معلقة حالياً</p></div>}
+                                <div className="grid gap-4">
+                                    {requests.map(req => (
+                                        <div key={req.id} className="p-5 border border-gray-100 rounded-2xl bg-gray-50 flex flex-col md:flex-row items-center justify-between gap-5 hover:bg-white hover:shadow-md transition">
+                                            <div className="w-full flex items-center gap-4">
+                                                <div className="w-12 h-12 bg-indigo-100 text-primary rounded-full flex items-center justify-center text-lg shadow-inner"><i className="fa-solid fa-user-graduate"></i></div>
+                                                <div>
+                                                    <p className="font-black text-gray-800">{req.studentName}</p>
+                                                    <p className="text-sm text-gray-500 font-medium">طلب الدورة: <span className="text-primary font-bold">{req.courseTitle}</span></p>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                                                <button onClick={() => handleOpenStudentProfile(req.studentId)} className="bg-white border text-gray-700 px-4 py-2.5 rounded-xl font-bold text-xs hover:bg-gray-100 transition shadow-sm" title="ملف الطالب"><i className="fa-solid fa-id-card"></i></button>
+                                                <button onClick={() => { setChatPreselectedStudent({id: req.studentId, fullName: req.studentName}); setActiveSubTab("supportChats"); }} className="bg-white border text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-xs hover:bg-indigo-50 transition shadow-sm" title="مراسلة"><i className="fa-solid fa-comment-dots"></i></button>
+                                                {req.status === 'approved' ? (
+                                                    <span className="bg-green-100 text-green-700 px-5 py-2.5 rounded-xl font-black text-sm border border-green-200"><i className="fa-solid fa-check mr-1"></i> مفعل</span>
+                                                ) : (
+                                                    <>
+                                                        <button onClick={() => handleApproveRequest(req.id, req.studentId, req.courseId)} className="bg-primary text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-700 transition">تفعيل ✅</button>
+                                                        <button onClick={() => handleDeleteRequest(req.id)} className="bg-red-100 text-red-600 px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-red-200 transition">رفض ❌</button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : activeSubTab === 'social' ? (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit">
+                                    <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-brands fa-hubspot text-blue-500"></i> إضافة رابط تواصل</h3>
+                                    <form onSubmit={handleAddSocialLink} className="space-y-4">
+                                        <input type="text" placeholder="اسم المنصة (مثال: تويتر)" required value={socialTitle} onChange={e => setSocialTitle(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                                        <input type="url" placeholder="الرابط (URL)" required value={socialUrl} onChange={e => setSocialUrl(e.target.value)} className="w-full px-4 py-2 bg-gray-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" dir="ltr" />
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 mb-1 block">شعار المنصة (أيقونة)</label>
+                                            <div className="relative border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 cursor-pointer">
+                                                <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setSocialIconUrl)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                                {socialIconUrl ? <img src={socialIconUrl} className="w-12 h-12 object-cover mx-auto rounded-full shadow" /> : <div className="text-gray-400"><i className="fa-solid fa-upload text-2xl"></i></div>}
+                                            </div>
+                                        </div>
+                                        <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow hover:bg-blue-700 transition">حفظ الرابط</button>
+                                    </form>
+                                </div>
+                                <div className="lg:col-span-2">
+                                    <h3 className="text-2xl font-black text-gray-800 mb-6 border-b pb-2">الروابط المتوفرة للطلاب</h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {socialLinks.map(link => (
+                                            <div key={link.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between group hover:border-blue-300 transition">
+                                                <div className="flex items-center gap-4">
+                                                    <img src={link.iconUrl} className="w-12 h-12 object-cover rounded-full shadow-md" />
+                                                    <div>
+                                                        <p className="font-black text-gray-800">{link.title}</p>
+                                                        <a href={link.url} target="_blank" className="text-xs font-bold text-blue-500 hover:underline">زيارة الرابط <i className="fa-solid fa-arrow-up-right-from-square ml-1"></i></a>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => handleDeleteSocialLink(link.id)} className="text-gray-300 hover:text-red-500 bg-gray-50 hover:bg-red-50 w-10 h-10 rounded-full flex items-center justify-center transition"><i className="fa-solid fa-trash"></i></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : activeSubTab === 'supportChats' ? (
+                            <AdminSupportChatsManager students={students} preselectedStudent={chatPreselectedStudent} />
+                        ) : null}
+                    </main>
+
+                    {/* نوافذ التعديل (Modals) للمدير */}
+                    {editingCourse && (
+                        <div className="fixed inset-0 bg-dark/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <form onSubmit={handleUpdateCourse} className="glass-panel p-8 rounded-3xl shadow-2xl max-w-lg w-full relative animate-[fadeIn_0.3s_ease-out]">
+                                <button type="button" onClick={() => setEditingCourse(null)} className="absolute top-5 left-5 text-gray-400 hover:text-red-500 bg-white w-8 h-8 rounded-full flex items-center justify-center shadow font-bold transition"><i className="fa-solid fa-xmark"></i></button>
+                                <h3 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-solid fa-pen-to-square text-primary"></i> تعديل الدورة</h3>
+                                <div className="space-y-4">
+                                    <div><label className="text-xs font-bold text-gray-500 block mb-1">اسم الدورة</label><input type="text" required value={editingCourse.title} onChange={e => setEditingCourse({...editingCourse, title: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700" /></div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-500 block mb-1">المدرب</label><input type="text" required value={editingCourse.instructor} onChange={e => setEditingCourse({...editingCourse, instructor: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm" /></div>
+                                        <div><label className="text-xs font-bold text-gray-500 block mb-1">السعر</label><input type="text" required value={editingCourse.price} onChange={e => setEditingCourse({...editingCourse, price: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm" /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-xs font-bold text-gray-500 block mb-1">المدة</label><input type="text" required value={editingCourse.duration} onChange={e => setEditingCourse({...editingCourse, duration: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm" /></div>
+                                        <div><label className="text-xs font-bold text-gray-500 block mb-1">الفئة</label><input type="text" required value={editingCourse.targetAudience} onChange={e => setEditingCourse({...editingCourse, targetAudience: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm" /></div>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-gray-500 block mb-1">الوصف</label><textarea value={editingCourse.desc} onChange={e => setEditingCourse({...editingCourse, desc: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm h-24"></textarea></div>
+                                    <div><label className="text-xs font-bold text-gray-500 block mb-1">رابط تجريبي (YouTube)</label><input type="url" value={editingCourse.previewVideoUrl || ""} onChange={e => setEditingCourse({...editingCourse, previewVideoUrl: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border rounded-xl outline-none focus:border-primary text-sm" dir="ltr" /></div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">صورة الغلاف (يتم ضغطها تلقائياً)</label>
+                                        <div className="flex items-center gap-4">
+                                            {editingCourse.imageUrl && <img src={editingCourse.imageUrl} className="w-16 h-16 object-cover rounded-lg shadow-sm border border-gray-200" />}
+                                            <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, (res) => setEditingCourse({...editingCourse, imageUrl: res}))} className="w-full text-xs font-bold text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-primary hover:file:bg-indigo-100" />
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-gradient-to-r from-primary to-secondary text-white py-3.5 rounded-xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:-translate-y-1">حفظ التحديثات <i className="fa-solid fa-check ml-1"></i></button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* نافذة ملف الطالب للمدير */}
+                    {viewingStudentModal && (
+                        <div className="fixed inset-0 bg-dark/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="glass-panel p-8 rounded-3xl shadow-2xl max-w-sm w-full relative border-t-8 border-primary animate-[fadeIn_0.3s_ease-out]">
+                                <button onClick={() => setViewingStudentModal(null)} className="absolute top-4 left-4 text-gray-400 hover:bg-gray-100 w-8 h-8 rounded-full flex justify-center items-center transition"><i className="fa-solid fa-xmark"></i></button>
+                                <div className="text-center mb-6">
+                                    <div className="w-20 h-20 bg-indigo-100 text-primary rounded-full flex items-center justify-center text-3xl mx-auto mb-3 shadow-inner"><i className="fa-solid fa-user-tie"></i></div>
+                                    <h3 className="text-2xl font-black text-gray-800">{viewingStudentModal.fullName}</h3>
+                                    <p className="text-xs text-gray-500 font-bold mt-1 bg-gray-100 inline-block px-3 py-1 rounded-full">@{viewingStudentModal.username}</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-2xl p-5 space-y-3 text-sm border border-gray-100">
+                                    <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-bold"><i className="fa-solid fa-location-dot w-5 text-center text-primary"></i>المدينة</span><span className="font-bold text-gray-800">{viewingStudentModal.city}</span></div>
+                                    <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-bold"><i className="fa-solid fa-phone w-5 text-center text-green-500"></i>الجوال</span><a href={`tel:${viewingStudentModal.phone}`} className="font-bold text-blue-600 hover:underline" dir="ltr">{viewingStudentModal.phone}</a></div>
+                                    <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-bold"><i className="fa-solid fa-graduation-cap w-5 text-center text-secondary"></i>الصف</span><span className="font-bold text-gray-800">{viewingStudentModal.grade}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500 font-bold"><i className="fa-solid fa-star w-5 text-center text-yellow-500"></i>موهبة</span><span className="font-bold text-gray-800 bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">{viewingStudentModal.mawhiba}</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function AdminSupportChatsManager({ students, preselectedStudent }) {
+            const [selectedStudent, setSelectedStudent] = useState(null);
+            const [messages, setMessages] = useState([]);
+            const [replyText, setReplyText] = useState("");
+            const studentList = students.filter(s => s.role === 'student');
+
+            useEffect(() => {
+                if (preselectedStudent) {
+                    const student = studentList.find(s => s.id === preselectedStudent.id) || preselectedStudent;
+                    setSelectedStudent(student);
+                }
+            }, [preselectedStudent, students]);
+
+            useEffect(() => {
+                if (!selectedStudent) return;
+                const q = query(collection(window.db, "users", selectedStudent.id, "supportChat"), orderBy("createdAt", "asc"));
+                const unsub = onSnapshot(q, (snap) => setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                return () => unsub();
+            }, [selectedStudent]);
+
+            const handleSendReply = async (e) => {
+                e.preventDefault();
+                if (!replyText.trim() || !selectedStudent) return;
+                await addDoc(collection(window.db, "users", selectedStudent.id, "supportChat"), { sender: "admin", text: replyText, createdAt: new Date().toISOString() });
+                setReplyText("");
+            };
+
+            return (
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row h-[70vh]">
+                    <div className="w-full md:w-80 bg-slate-50 border-l border-gray-100 flex flex-col">
+                        <div className="p-5 border-b border-gray-200 bg-white"><h3 className="font-black text-gray-800"><i className="fa-solid fa-users text-primary mr-2"></i> قائمة الطلاب</h3></div>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            {studentList.map(st => (
+                                <button key={st.id} onClick={() => setSelectedStudent(st)} className={`w-full flex items-center gap-3 p-3 rounded-xl font-bold transition-all text-sm ${selectedStudent?.id === st.id ? 'bg-primary text-white shadow-md' : 'bg-white hover:bg-gray-100 text-gray-700 border border-gray-100'}`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${selectedStudent?.id === st.id ? 'bg-white/20' : 'bg-gray-200 text-gray-500'}`}><i className="fa-solid fa-user"></i></div>
+                                    <span className="truncate">{st.fullName || st.username}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex-1 flex flex-col bg-white">
+                        {selectedStudent ? (
+                            <>
+                                <div className="p-5 border-b border-gray-100 bg-white shadow-sm z-10 flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-indigo-100 text-primary rounded-full flex items-center justify-center"><i className="fa-solid fa-user-graduate"></i></div>
+                                    <div><h3 className="font-black text-gray-800 leading-tight">{selectedStudent.fullName}</h3><p className="text-[10px] text-gray-400 font-bold">محادثة مباشرة</p></div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
+                                    {messages.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400"><i className="fa-regular fa-comments text-5xl mb-3 opacity-20"></i><p className="font-bold">ابدأ المحادثة الآن</p></div>}
+                                    {messages.map(m => (
+                                        <div key={m.id} className={`flex ${m.sender === 'admin' ? 'justify-start' : 'justify-end'}`}>
+                                            <div className={`p-4 rounded-2xl max-w-[75%] shadow-sm text-sm ${m.sender === 'admin' ? 'bg-primary text-white rounded-tr-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'}`}>
+                                                {m.text}
+                                                <span className={`block text-[9px] mt-2 font-bold ${m.sender === 'admin' ? 'text-indigo-200' : 'text-gray-400'}`}>{new Date(m.createdAt).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <form onSubmit={handleSendReply} className="p-4 bg-white border-t border-gray-100 flex gap-3">
+                                    <input type="text" value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="اكتب رسالة للطالب..." className="flex-1 px-5 py-3 bg-gray-50 border border-gray-200 rounded-full outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all text-sm font-bold text-gray-700" />
+                                    <button type="submit" disabled={!replyText.trim()} className="bg-primary text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100"><i className="fa-solid fa-paper-plane"></i></button>
+                                </form>
+                            </>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+                                <i className="fa-brands fa-rocketchat text-7xl mb-4 opacity-20"></i>
+                                <p className="font-black text-xl text-gray-400">اختر طالباً لبدء المحادثة</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function AdminLecturesManager({ course, onBack }) {
+            const [lectures, setLectures] = useState([]);
+            const [title, setTitle] = useState("");
+            const [content, setContent] = useState("");
+            const [videoUrl, setVideoUrl] = useState("");
+
+            useEffect(() => {
+                const q = query(collection(window.db, "courses", course.id, "lectures"), orderBy("createdAt", "asc"));
+                const unsubscribe = onSnapshot(q, (snapshot) => setLectures(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                return () => unsubscribe();
+            }, [course.id]);
+
+            const handleAddLecture = async (e) => {
+                e.preventDefault();
+                await addDoc(collection(window.db, "courses", course.id, "lectures"), { title, content, videoUrl, createdAt: new Date().toISOString() });
+                setTitle(""); setContent(""); setVideoUrl("");
+            };
+
+            const handleDeleteLecture = async (id) => await deleteDoc(doc(window.db, "courses", course.id, "lectures", id));
+
+            return (
+                <div className="animate-[fadeIn_0.3s_ease-out]">
+                    <button onClick={onBack} className="mb-6 flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-full font-black text-sm hover:bg-gray-50 transition shadow-sm"><i className="fa-solid fa-arrow-right"></i> العودة للدورات</button>
+                    <div className="bg-gradient-to-r from-primary to-secondary p-6 rounded-3xl shadow-lg mb-8 text-white flex items-center gap-5 relative overflow-hidden">
+                        <div className="absolute right-0 top-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl"></div>
+                        {course.imageUrl ? <img src={course.imageUrl} className="w-24 h-24 object-cover rounded-2xl shadow-xl z-10 border-2 border-white/20" /> : <div className="w-24 h-24 bg-white/10 rounded-2xl flex items-center justify-center z-10"><i className="fa-solid fa-video text-3xl"></i></div>}
+                        <div className="z-10">
+                            <h2 className="text-3xl font-black mb-1">{course.title}</h2>
+                            <p className="text-indigo-100 font-bold"><i className="fa-solid fa-layer-group ml-1"></i> إدارة الحلقات والمحتوى</p>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit">
+                            <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2"><i className="fa-solid fa-plus-circle text-primary"></i> إضافة حلقة جديدة</h3>
+                            <form onSubmit={handleAddLecture} className="space-y-4">
+                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">عنوان الحلقة</label><input type="text" required value={title} onChange={e => setTitle(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold" /></div>
+                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">رابط الفيديو (يوتيوب)</label><input type="url" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-primary text-sm" dir="ltr" /></div>
+                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">محتوى إضافي / وصف</label><textarea required value={content} onChange={e => setContent(e.target.value)} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-primary text-sm h-28"></textarea></div>
+                                <button type="submit" className="w-full bg-primary text-white py-3.5 rounded-xl font-black shadow-lg hover:bg-indigo-700 transition transform hover:-translate-y-0.5">حفظ ونشر الحلقة <i className="fa-solid fa-cloud-arrow-up ml-1"></i></button>
+                            </form>
+                        </div>
+                        <div className="lg:col-span-2 space-y-4">
+                            {lectures.length === 0 && <div className="text-center py-12 bg-white rounded-3xl border border-gray-100 text-gray-400"><i className="fa-solid fa-film text-5xl mb-3 opacity-30"></i><p className="font-bold text-lg">لم يتم إضافة حلقات بعد</p></div>}
+                            {lectures.map((lec, idx) => (
+                                <div key={lec.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex gap-4 hover:shadow-md transition group">
+                                    <div className="w-12 h-12 shrink-0 bg-indigo-50 text-primary rounded-xl flex items-center justify-center font-black text-xl border border-indigo-100">{idx + 1}</div>
+                                    <div className="flex-1">
+                                        <h4 className="font-black text-lg text-gray-800 mb-1">{lec.title}</h4>
+                                        <p className="text-gray-500 text-sm leading-relaxed mb-3 line-clamp-2">{lec.content}</p>
+                                        {lec.videoUrl && <a href={lec.videoUrl} target="_blank" className="inline-flex items-center gap-1 text-xs font-bold text-secondary bg-purple-50 px-3 py-1 rounded-full"><i className="fa-brands fa-youtube"></i> رابط الفيديو</a>}
+                                    </div>
+                                    <button onClick={() => handleDeleteLecture(lec.id)} className="w-10 h-10 shrink-0 bg-gray-50 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl flex items-center justify-center transition" title="حذف الحلقة"><i className="fa-solid fa-trash-can"></i></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- لوحة الطالب الاحترافية ---
+        function StudentDashboard({ user }) {
+            const [activeTab, setActiveTab] = useState("explore");
+            const [profile, setProfile] = useState(null);
+            const [courses, setCourses] = useState([]);
+            const [promos, setPromos] = useState([]);
+            const [socialLinks, setSocialLinks] = useState([]);
+            const [enrolledCourseIds, setEnrolledCourseIds] = useState([]);
+            const [myRequests, setMyRequests] = useState({});
+            
+            const [selectedCourse, setSelectedCourse] = useState(null);
+            const [previewCourseModal, setPreviewCourseModal] = useState(null);
+            const [selectedPromoModal, setSelectedPromoModal] = useState(null);
+            const [paymentInfoModal, setPaymentInfoModal] = useState(null);
+            
+            const [showSupportChat, setShowSupportChat] = useState(false);
+            const [hasNewAdminMessage, setHasNewAdminMessage] = useState(false);
+
+            useEffect(() => {
+                const fetchProfile = async () => { const docSnap = await getDoc(doc(window.db, "users", user.uid)); if (docSnap.exists()) setProfile(docSnap.data()); };
+                fetchProfile();
+
+                const unsubCourses = onSnapshot(query(collection(window.db, "courses"), orderBy("createdAt", "desc")), (snap) => setCourses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubPromos = onSnapshot(query(collection(window.db, "promos"), orderBy("createdAt", "desc")), (snap) => setPromos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubSocial = onSnapshot(query(collection(window.db, "socialLinks"), orderBy("createdAt", "asc")), (snap) => setSocialLinks(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+                const unsubEnrolled = onSnapshot(collection(window.db, "users", user.uid, "enrolledCourses"), (snap) => setEnrolledCourseIds(snap.docs.map(d => d.id)));
+                
+                const unsubReqs = onSnapshot(collection(window.db, "enrollmentRequests"), (snap) => {
+                    const reqMap = {}; 
+                    snap.docs.forEach(d => { const data = d.data(); if (data.studentId === user.uid) reqMap[data.courseId] = { status: data.status, reqId: d.id }; }); 
+                    setMyRequests(reqMap);
+                });
+
+                const qMsg = query(collection(window.db, "users", user.uid, "supportChat"), orderBy("createdAt", "desc"), limit(1));
+                const unsubMsgs = onSnapshot(qMsg, (snap) => {
+                    if (!snap.empty) { const lastMsg = snap.docs[0].data(); if (lastMsg.sender === "admin" && !showSupportChat) setHasNewAdminMessage(true); }
+                });
+
+                return () => { unsubCourses(); unsubPromos(); unsubSocial(); unsubEnrolled(); unsubReqs(); unsubMsgs(); };
+            }, [user.uid, showSupportChat]);
+
+            if (profile && !profile.profileComplete) return <CompleteProfile user={user} onComplete={(data) => setProfile({ ...profile, ...data, profileComplete: true })} />;
+
+            const handleRequestEnrollment = async (course) => {
+                await addDoc(collection(window.db, "enrollmentRequests"), { studentId: user.uid, studentName: profile?.fullName || user.email, courseId: course.id, courseTitle: course.title, status: "pending", createdAt: new Date().toISOString() });
+                setPaymentInfoModal(course);
+            };
+
+            const handleCancelRequest = async (reqId) => {
+                if(confirm("هل أنت متأكد من التراجع وإلغاء طلب الانضمام؟")) await deleteDoc(doc(window.db, "enrollmentRequests", reqId));
+            };
+
+            const enrolledCoursesList = courses.filter(c => enrolledCourseIds.includes(c.id));
+
+            return (
+                <div className="min-h-screen bg-slate-50 pb-24 font-sans">
+                    {/* شريط التنقل العلوي (Navbar) الاحترافي */}
+                    <nav className="glass-panel sticky top-0 z-40 border-b border-gray-200/50 shadow-sm px-4 sm:px-8 py-3 flex justify-between items-center">
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => {setActiveTab("explore"); setSelectedCourse(null);}}>
+                            <img src="https://i.ibb.co/3m1R0Vb/image.png" className="w-10 h-10 object-cover rounded-full border-2 border-primary" />
+                            <h1 className="text-xl font-black text-gray-800 hidden sm:block">إبداع <span className="text-primary">Edu</span></h1>
+                        </div>
+                        <div className="flex items-center bg-gray-100/80 p-1 rounded-full border border-gray-200">
+                            <button onClick={() => { setActiveTab("explore"); setSelectedCourse(null); }} className={`px-4 sm:px-6 py-2 rounded-full font-bold text-xs sm:text-sm transition-all duration-300 ${activeTab === 'explore' && !selectedCourse ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>الاستكشاف</button>
+                            <button onClick={() => { setActiveTab("myCourses"); setSelectedCourse(null); }} className={`px-4 sm:px-6 py-2 rounded-full font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 ${activeTab === 'myCourses' && !selectedCourse ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>دوراتي {enrolledCoursesList.length > 0 && <span className="bg-primary text-white text-[10px] px-1.5 py-0.5 rounded-full">{enrolledCoursesList.length}</span>}</button>
+                            <button onClick={() => { setActiveTab("profile"); setSelectedCourse(null); }} className={`px-4 sm:px-6 py-2 rounded-full font-bold text-xs sm:text-sm transition-all duration-300 ${activeTab === 'profile' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>الملف</button>
+                        </div>
+                        <button onClick={() => signOut(window.auth)} className="w-10 h-10 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-500 hover:text-white transition"><i className="fa-solid fa-power-off"></i></button>
+                    </nav>
+
+                    <div className="max-w-7xl mx-auto p-4 sm:p-8">
+                        {selectedCourse ? (
+                            <StudentCourseView course={selectedCourse} user={user} profile={profile} onBack={() => setSelectedCourse(null)} />
+                        ) : (
+                            <div className="animate-[fadeIn_0.5s_ease-out]">
+                                {activeTab === "explore" && (
+                                    <div className="space-y-12">
+                                        {/* قسم الترحيب والإعلانات */}
+                                        {promos.length > 0 && (
+                                            <div className="relative bg-dark rounded-[2.5rem] p-8 sm:p-12 overflow-hidden shadow-2xl">
+                                                <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-l from-primary/80 to-secondary/80 z-0"></div>
+                                                <div className="absolute -top-24 -right-24 w-96 h-96 bg-white opacity-10 rounded-full blur-3xl z-0 pointer-events-none"></div>
+                                                <div className="relative z-10 text-white mb-8">
+                                                    <h2 className="text-3xl sm:text-4xl font-black mb-2">أهلاً بك يا <span className="text-yellow-300">{profile?.fullName?.split(' ')[0]}</span>! ✨</h2>
+                                                    <p className="text-indigo-100 text-lg">استكشف أحدث العروض والبرامج المصممة خصيصاً لتطوير مهاراتك.</p>
+                                                </div>
+                                                <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    {promos.map(p => (
+                                                        <div key={p.id} onClick={() => setSelectedPromoModal(p)} className="bg-white/10 backdrop-blur-md border border-white/20 p-5 rounded-3xl cursor-pointer hover:bg-white/20 transition-all transform hover:-translate-y-1 group">
+                                                            <div className="flex items-center gap-3 mb-4">
+                                                                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white"><i className={`fa-solid ${p.type==='image'?'fa-image':p.type==='video'?'fa-play':'fa-bullhorn'}`}></i></div>
+                                                                <h3 className="font-black text-xl text-white line-clamp-1">{p.title}</h3>
+                                                            </div>
+                                                            {p.type === 'image' ? <img src={p.url} className="w-full h-48 object-cover rounded-2xl shadow-inner group-hover:scale-[1.02] transition duration-500" /> : p.type === 'video' ? <div className="w-full h-48 bg-black rounded-2xl overflow-hidden pointer-events-none shadow-inner"><iframe src={getEmbedUrl(p.url)} className="w-full h-full"></iframe></div> : <p className="text-indigo-50 text-sm bg-black/20 p-4 rounded-2xl line-clamp-3 leading-relaxed">{p.text}</p>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* شبكة الدورات */}
+                                        <div>
+                                            <div className="flex items-center gap-3 mb-8">
+                                                <div className="w-2 h-8 bg-primary rounded-full"></div>
+                                                <h2 className="text-2xl sm:text-3xl font-black text-gray-800">البرامج والدورات المتاحة</h2>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                                {courses.map(course => {
+                                                    const isEnrolled = enrolledCourseIds.includes(course.id);
+                                                    const reqData = myRequests[course.id];
+                                                    return (
+                                                        <div key={course.id} className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col cursor-pointer group hover:shadow-xl transition-all duration-300 hover:-translate-y-1" onClick={() => setPreviewCourseModal(course)}>
+                                                            <div className="h-48 relative overflow-hidden bg-gray-100">
+                                                                {course.imageUrl ? <img src={course.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition duration-700" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><i className="fa-solid fa-graduation-cap text-5xl"></i></div>}
+                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60 group-hover:opacity-80 transition"></div>
+                                                                <div className="absolute bottom-4 right-4 bg-white/95 backdrop-blur text-primary text-xs font-black px-3 py-1.5 rounded-full shadow-lg">{course.price}</div>
+                                                                {isEnrolled && <div className="absolute top-4 left-4 bg-green-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-lg"><i className="fa-solid fa-check mr-1"></i> مشترك</div>}
+                                                            </div>
+                                                            <div className="p-6 flex flex-col flex-1 relative">
+                                                                <div className="absolute -top-6 left-6 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg text-primary text-xl border-4 border-white"><i className="fa-solid fa-play ml-1"></i></div>
+                                                                <h3 className="font-black text-lg text-gray-800 mb-2 mt-2 line-clamp-2 leading-tight group-hover:text-primary transition">{course.title}</h3>
+                                                                <p className="text-gray-500 text-xs mb-4 flex items-center gap-1.5 font-bold"><i className="fa-solid fa-chalkboard-user"></i> {course.instructor}</p>
+                                                                <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+                                                                    <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1"><i className="fa-regular fa-clock"></i> {course.duration}</span>
+                                                                    <span className="text-primary font-black text-sm flex items-center gap-1">التفاصيل <i className="fa-solid fa-arrow-left text-[10px] transition group-hover:-translate-x-1"></i></span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === "myCourses" && (
+                                    <div className="animate-[fadeIn_0.5s_ease-out]">
+                                        <div className="flex items-center gap-3 mb-8">
+                                            <div className="w-2 h-8 bg-green-500 rounded-full"></div>
+                                            <h2 className="text-2xl sm:text-3xl font-black text-gray-800">دوراتي التعليمية</h2>
+                                        </div>
+                                        {enrolledCoursesList.length === 0 ? (
+                                            <div className="bg-white rounded-[2rem] border border-gray-100 p-12 text-center shadow-sm">
+                                                <div className="w-24 h-24 bg-gray-50 text-gray-300 rounded-full flex items-center justify-center text-4xl mx-auto mb-4"><i className="fa-solid fa-folder-open"></i></div>
+                                                <h3 className="text-xl font-black text-gray-700 mb-2">ليس لديك دورات مشتركة حالياً</h3>
+                                                <p className="text-gray-500 text-sm mb-6">استكشف البرامج المتاحة وابدأ رحلة التعلم الآن.</p>
+                                                <button onClick={() => setActiveTab("explore")} className="bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg">تصفح الدورات</button>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                {enrolledCoursesList.map(course => (
+                                                    <div key={course.id} className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden flex flex-col group hover:shadow-xl transition-all duration-300">
+                                                        <div className="h-40 relative overflow-hidden bg-gray-100">
+                                                            {course.imageUrl && <img src={course.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />}
+                                                            <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition"></div>
+                                                            <div className="absolute top-4 right-4 bg-green-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg"><i className="fa-solid fa-unlock-keyhole"></i></div>
+                                                        </div>
+                                                        <div className="p-6 flex flex-col flex-1">
+                                                            <h3 className="font-black text-lg text-gray-800 mb-1 leading-tight">{course.title}</h3>
+                                                            <p className="text-gray-500 text-xs mb-5 font-bold"><i className="fa-solid fa-chalkboard-user mr-1"></i> {course.instructor}</p>
+                                                            <button onClick={() => setSelectedCourse(course)} className="mt-auto w-full bg-gradient-to-r from-primary to-secondary text-white py-3 rounded-xl font-black shadow-md hover:shadow-lg transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2"><i className="fa-solid fa-play-circle text-lg"></i> إكمال التعلم</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {activeTab === "profile" && <div className="animate-[fadeIn_0.5s_ease-out]"><StudentProfileView user={user} profile={profile} onUpdate={(newProf) => setProfile(newProf)} /></div>}
+                            </div>
+                        )}
+
+                        {/* روابط التواصل (Footer) */}
+                        {socialLinks.length > 0 && !selectedCourse && !previewCourseModal && !selectedPromoModal && !paymentInfoModal && (
+                            <div className="mt-20 pt-10 border-t border-gray-200 text-center pb-8">
+                                <h3 className="text-gray-400 text-xs font-black uppercase tracking-wider mb-5">تواصل وتابع منصة إبداع عبر</h3>
+                                <div className="flex justify-center gap-5 flex-wrap">
+                                    {socialLinks.map(link => (
+                                        <a key={link.id} href={link.url} target="_blank" title={link.title} className="group relative block">
+                                            <div className="absolute inset-0 bg-primary opacity-0 group-hover:opacity-20 rounded-full blur transition duration-300"></div>
+                                            <img src={link.iconUrl} className="relative w-12 h-12 object-cover rounded-full border border-gray-200 shadow-sm group-hover:scale-110 transition transform duration-300" />
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* نافذة معاينة الدورة للطالب */}
+                    {previewCourseModal && !paymentInfoModal && (() => {
+                        const isEnrolled = enrolledCourseIds.includes(previewCourseModal.id);
+                        const reqData = myRequests[previewCourseModal.id];
+                        
+                        return (
+                        <div className="fixed inset-0 bg-dark/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+                            <div className="bg-white rounded-[2rem] shadow-2xl max-w-2xl w-full overflow-hidden relative animate-[fadeInUp_0.4s_ease-out]">
+                                <button onClick={() => setPreviewCourseModal(null)} className="absolute top-4 right-4 z-20 w-10 h-10 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black transition backdrop-blur"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                
+                                <div className="w-full h-56 sm:h-72 bg-gray-900 relative">
+                                    {previewCourseModal.previewVideoUrl ? (
+                                        <iframe src={getEmbedUrl(previewCourseModal.previewVideoUrl)} className="w-full h-full border-0" allowFullScreen></iframe>
+                                    ) : previewCourseModal.imageUrl ? (
+                                        <>
+                                            <img src={previewCourseModal.imageUrl} className="w-full h-full object-cover opacity-80" />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
+                                        </>
+                                    ) : <div className="w-full h-full flex items-center justify-center"><i className="fa-solid fa-graduation-cap text-6xl text-gray-700"></i></div>}
+                                    
+                                    {!previewCourseModal.previewVideoUrl && (
+                                        <div className="absolute bottom-6 px-8 text-white w-full">
+                                            <span className="bg-primary/90 backdrop-blur text-[10px] font-black px-2 py-1 rounded mb-2 inline-block">دورة تعليمية</span>
+                                            <h2 className="text-2xl sm:text-3xl font-black leading-tight drop-shadow-md">{previewCourseModal.title}</h2>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="p-6 sm:p-8 space-y-6">
+                                    {previewCourseModal.previewVideoUrl && <h2 className="text-2xl font-black text-gray-800 leading-tight">{previewCourseModal.title}</h2>}
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex items-center gap-3"><div className="w-10 h-10 bg-indigo-50 text-primary rounded-xl flex items-center justify-center"><i className="fa-solid fa-chalkboard-user"></i></div><div><p className="text-[10px] text-gray-400 font-bold">المدرب</p><p className="font-black text-sm text-gray-800">{previewCourseModal.instructor}</p></div></div>
+                                        <div className="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex items-center gap-3"><div className="w-10 h-10 bg-indigo-50 text-primary rounded-xl flex items-center justify-center"><i className="fa-solid fa-clock"></i></div><div><p className="text-[10px] text-gray-400 font-bold">المدة</p><p className="font-black text-sm text-gray-800">{previewCourseModal.duration}</p></div></div>
+                                        <div className="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex items-center gap-3"><div className="w-10 h-10 bg-indigo-50 text-primary rounded-xl flex items-center justify-center"><i className="fa-solid fa-users-viewfinder"></i></div><div><p className="text-[10px] text-gray-400 font-bold">الفئة</p><p className="font-black text-sm text-gray-800">{previewCourseModal.targetAudience}</p></div></div>
+                                        <div className="bg-green-50 border border-green-100 p-4 rounded-2xl flex items-center gap-3"><div className="w-10 h-10 bg-white text-green-600 rounded-xl flex items-center justify-center shadow-sm"><i className="fa-solid fa-tag"></i></div><div><p className="text-[10px] text-green-600/70 font-bold">استثمارك</p><p className="font-black text-base text-green-700">{previewCourseModal.price}</p></div></div>
+                                    </div>
+                                    
+                                    <div>
+                                        <h4 className="font-black text-gray-800 mb-2 flex items-center gap-2"><i className="fa-solid fa-circle-info text-primary"></i> عن الدورة</h4>
+                                        <p className="text-gray-600 text-sm leading-relaxed bg-gray-50 p-5 rounded-2xl border border-gray-100">{previewCourseModal.desc || 'لا يوجد وصف מضاف.'}</p>
+                                    </div>
+                                    
+                                    <div className="pt-2">
+                                        {isEnrolled ? (
+                                            <button onClick={() => { setSelectedCourse(previewCourseModal); setPreviewCourseModal(null); }} className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:shadow-xl transition transform hover:-translate-y-1 flex justify-center items-center gap-2"><i className="fa-solid fa-play-circle"></i> دخول محتوى الدورة</button>
+                                        ) : reqData?.status === 'pending' ? (
+                                            <div className="flex gap-3">
+                                                <button disabled className="flex-1 bg-yellow-50 text-yellow-700 border border-yellow-200 py-4 rounded-2xl font-black cursor-not-allowed flex justify-center items-center gap-2"><i className="fa-solid fa-hourglass-half fa-spin"></i> قيد المراجعة</button>
+                                                <button onClick={() => { handleCancelRequest(reqData.reqId); setPreviewCourseModal(null); }} className="bg-white border-2 border-red-100 text-red-500 px-6 py-4 rounded-2xl font-black hover:bg-red-50 hover:border-red-200 transition">إلغاء <i className="fa-solid fa-xmark"></i></button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => { handleRequestEnrollment(previewCourseModal); setPreviewCourseModal(null); }} className="w-full bg-gradient-to-r from-primary to-secondary text-white py-4 rounded-2xl font-black text-lg shadow-[0_10px_20px_rgba(79,70,229,0.3)] hover:shadow-[0_15px_25px_rgba(79,70,229,0.4)] transition transform hover:-translate-y-1 flex justify-center items-center gap-2">طلب الانضمام للدورة <i className="fa-solid fa-rocket"></i></button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
+                    {/* نافذة التعليمات بعد الطلب */}
+                    {paymentInfoModal && (
+                        <div className="fixed inset-0 bg-dark/80 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
+                            <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md w-full relative text-center border-t-8 border-green-500 animate-[fadeIn_0.3s_ease-out]">
+                                <button onClick={() => setPaymentInfoModal(null)} className="absolute top-4 right-4 text-gray-400 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 hover:text-gray-800 transition"><i className="fa-solid fa-xmark"></i></button>
+                                <div className="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 shadow-inner"><i className="fa-solid fa-check"></i></div>
+                                <h2 className="text-2xl font-black text-gray-800 mb-2">تم تسجيل طلبك! 🎉</h2>
+                                <p className="text-gray-500 text-sm mb-6">خطوة واحدة متبقية لفتح المحتوى</p>
+                                
+                                <div className="bg-gray-50 p-5 rounded-2xl text-gray-700 space-y-4 text-sm border border-gray-100 mb-6">
+                                    <p>لفتح الدورة المسجلة، يرجى تحويل مبلغ <span className="font-black text-green-600 bg-green-100 px-2 py-0.5 rounded">{paymentInfoModal.price}</span> إلى الحساب البنكي التالي:</p>
+                                    <div className="bg-white border-2 border-dashed border-gray-300 p-4 rounded-xl text-center">
+                                        <p className="font-black text-primary mb-1"><i className="fa-solid fa-building-columns mr-1"></i> مركز إبداع ومواهب للتدريب</p>
+                                        <p className="font-mono text-lg font-bold text-gray-800 select-all" title="انقر للنسخ">SA1080000216608016625329</p>
+                                    </div>
+                                    <p>ثم إرسال الإيصال للإدارة عبر واتساب:</p>
+                                    <a href={`https://wa.me/966510785633?text=مرحباً، أرفق لكم إيصال سداد دورة: ${paymentInfoModal.title}`} target="_blank" className="inline-flex items-center justify-center gap-2 bg-green-500 text-white w-full py-3 rounded-xl font-black hover:bg-green-600 transition shadow-md"><i className="fa-brands fa-whatsapp text-lg"></i> إرسال عبر واتساب</a>
+                                    <p className="text-[11px] font-bold text-gray-400 mt-2"><i className="fa-solid fa-bolt text-yellow-500"></i> سيتم التفعيل فوراً بعد التأكد من الإيصال.</p>
+                                </div>
+                                <button onClick={() => setPaymentInfoModal(null)} className="w-full bg-gray-800 text-white py-3.5 rounded-xl font-black hover:bg-black transition">حسناً، فهمت</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* نافذة الإعلان */}
+                    {selectedPromoModal && (
+                        <div className="fixed inset-0 bg-dark/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-[2rem] shadow-2xl max-w-lg w-full relative overflow-hidden animate-[fadeInUp_0.3s_ease-out]">
+                                <button onClick={() => setSelectedPromoModal(null)} className="absolute top-4 right-4 z-20 w-10 h-10 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black transition backdrop-blur"><i className="fa-solid fa-xmark"></i></button>
+                                {selectedPromoModal.type === 'image' ? <img src={selectedPromoModal.url} className="w-full h-80 object-cover" /> : selectedPromoModal.type === 'video' ? <div className="w-full h-72 bg-black"><iframe src={getEmbedUrl(selectedPromoModal.url)} className="w-full h-full" allowFullScreen></iframe></div> : <div className="bg-gradient-to-br from-primary to-secondary h-32 w-full flex items-center justify-center text-white text-5xl"><i className="fa-solid fa-bullhorn"></i></div>}
+                                <div className="p-6 sm:p-8">
+                                    <h3 className="text-2xl font-black text-gray-800 mb-4 leading-tight">{selectedPromoModal.title}</h3>
+                                    {selectedPromoModal.type === 'text' && <p className="text-gray-600 text-sm leading-relaxed bg-gray-50 p-5 rounded-2xl border border-gray-100 whitespace-pre-wrap">{selectedPromoModal.text}</p>}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* الدعم الفني المنبثق */}
+                    <div className="fixed bottom-6 left-6 sm:bottom-8 sm:left-8 z-50 flex flex-col items-end">
+                        {showSupportChat && (
+                            <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 w-[90vw] sm:w-[350px] flex flex-col h-[500px] mb-4 animate-[fadeInUp_0.3s_ease-out] overflow-hidden">
+                                <div className="bg-gradient-to-r from-primary to-secondary text-white p-4 flex justify-between items-center shadow-md z-10">
+                                    <div className="flex items-center gap-2"><div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center"><i className="fa-solid fa-headset"></i></div><span className="font-black text-sm">الدعم الفني المباشر</span></div>
+                                    <button onClick={() => setShowSupportChat(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition"><i className="fa-solid fa-chevron-down"></i></button>
+                                </div>
+                                <StudentCloudChat user={user} />
+                            </div>
+                        )}
+                        
+                        {!showSupportChat && (
+                            <button onClick={() => { setShowSupportChat(true); setHasNewAdminMessage(false); }} className="relative bg-primary hover:bg-indigo-700 text-white w-16 h-16 rounded-full shadow-[0_10px_25px_rgba(79,70,229,0.5)] flex items-center justify-center transition-all transform hover:scale-110 hover:-translate-y-1">
+                                {hasNewAdminMessage && <span className="absolute top-0 right-0 flex h-4 w-4"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-white"></span></span>}
+                                <i className="fa-solid fa-comments text-2xl"></i>
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function StudentCloudChat({ user }) {
+            const [messages, setMessages] = useState([]);
+            const [text, setText] = useState("");
+            const chatEndRef = React.useRef(null);
+
+            useEffect(() => {
+                const q = query(collection(window.db, "users", user.uid, "supportChat"), orderBy("createdAt", "asc"));
+                const unsub = onSnapshot(q, (snap) => {
+                    setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                });
+                return () => unsub();
+            }, [user.uid]);
+
+            const handleSend = async (e) => {
+                e.preventDefault();
+                if (!text.trim()) return;
+                const msg = text; setText("");
+                await addDoc(collection(window.db, "users", user.uid, "supportChat"), { sender: "student", text: msg, createdAt: new Date().toISOString() });
+            };
+
+            return (
+                <div className="flex flex-col flex-1 bg-slate-50 relative">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {messages.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400"><i className="fa-regular fa-paper-plane text-4xl mb-3 opacity-20"></i><p className="font-bold text-xs text-center">نحن هنا لمساعدتك..<br/>أرسل استفسارك وسنرد عليك فوراً.</p></div>}
+                        {messages.map(m => (
+                            <div key={m.id} className={`flex ${m.sender === 'student' ? 'justify-start' : 'justify-end'}`}>
+                                <div className={`p-3 rounded-2xl max-w-[85%] shadow-sm text-sm ${m.sender === 'student' ? 'bg-primary text-white rounded-tr-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'}`}>
+                                    {m.text}
+                                    <span className={`block text-[9px] mt-1.5 font-bold text-right ${m.sender === 'student' ? 'text-indigo-200' : 'text-gray-400'}`}>{new Date(m.createdAt).toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={chatEndRef} />
+                    </div>
+                    <form onSubmit={handleSend} className="p-3 bg-white border-t border-gray-100 flex gap-2">
+                        <input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="اكتب رسالتك..." className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-full outline-none focus:border-primary text-sm font-bold transition-all" />
+                        <button type="submit" disabled={!text.trim()} className="bg-primary text-white w-10 h-10 rounded-full flex items-center justify-center shadow hover:bg-indigo-700 transition-colors disabled:opacity-50"><i className="fa-solid fa-paper-plane text-xs"></i></button>
+                    </form>
+                </div>
+            );
+        }
+
+        function CompleteProfile({ user, onComplete }) {
+            const [fullName, setFullName] = useState("");
+            const [city, setCity] = useState("");
+            const [phone, setPhone] = useState("");
+            const [grade, setGrade] = useState("");
+            const [mawhiba, setMawhiba] = useState("نعم");
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const data = { fullName, city, phone, grade, mawhiba, profileComplete: true };
+                await updateDoc(doc(window.db, "users", user.uid), data);
+                onComplete(data);
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen bg-slate-100 p-4">
+                    <form onSubmit={handleSubmit} className="bg-white p-8 sm:p-10 rounded-[2rem] shadow-xl w-full max-w-lg border border-gray-100 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-primary to-secondary"></div>
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-indigo-50 text-primary rounded-full flex items-center justify-center text-2xl mx-auto mb-4"><i className="fa-solid fa-user-pen"></i></div>
+                            <h2 className="text-2xl font-black text-gray-800">أكمل ملفك الشخصي</h2>
+                            <p className="text-gray-500 text-sm mt-1">لتخصيص تجربتك التعليمية بأفضل شكل ممكن</p>
+                        </div>
+                        <div className="space-y-4">
+                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">الاسم الثلاثي</label><input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm font-bold" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">المدينة</label><input type="text" required value={city} onChange={e => setCity(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm font-bold" /></div>
+                                <div><label className="text-xs font-bold text-gray-500 mb-1 block">الصف الدراسي</label><input type="text" required value={grade} onChange={e => setGrade(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm font-bold" /></div>
+                            </div>
+                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">رقم الجوال (للتواصل السريع)</label><input type="tel" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm font-bold" dir="ltr" /></div>
+                            <div><label className="text-xs font-bold text-gray-500 mb-1 block">هل شاركت سابقاً في برامج موهبة؟</label><select value={mawhiba} onChange={e => setMawhiba(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-primary text-sm font-bold"><option value="نعم">نعم، شاركت</option><option value="لا">لا، هذه أول مرة</option></select></div>
+                        </div>
+                        <button type="submit" className="mt-8 w-full bg-primary text-white py-3.5 rounded-xl font-black text-lg shadow-[0_10px_20px_rgba(79,70,229,0.2)] hover:shadow-[0_10px_20px_rgba(79,70,229,0.4)] transition transform hover:-translate-y-0.5">حفظ وبدء التعلم <i className="fa-solid fa-arrow-left mr-1"></i></button>
+                    </form>
+                </div>
+            );
+        }
+
+        function StudentProfileView({ user, profile, onUpdate }) {
+            const [isEditing, setIsEditing] = useState(false);
+            const [fullName, setFullName] = useState(profile?.fullName || "");
+            const [city, setCity] = useState(profile?.city || "");
+            const [phone, setPhone] = useState(profile?.phone || "");
+            const [grade, setGrade] = useState(profile?.grade || "");
+            const [mawhiba, setMawhiba] = useState(profile?.mawhiba || "نعم");
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                const updatedData = { fullName, city, phone, grade, mawhiba, profileComplete: true };
+                await updateDoc(doc(window.db, "users", user.uid), updatedData);
+                onUpdate(updatedData);
+                setIsEditing(false);
+            };
+
+            return (
+                <div className="bg-white p-8 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 max-w-xl mx-auto mt-8">
+                    <div className="flex justify-between items-center mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary text-white rounded-full flex items-center justify-center text-2xl shadow-lg"><i className="fa-regular fa-user"></i></div>
+                            <div>
+                                <h2 className="text-2xl font-black text-gray-800">{profile?.fullName}</h2>
+                                <p className="text-sm font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded inline-block mt-1">ID: {user.uid.slice(0,8)}</p>
+                            </div>
+                        </div>
+                        {!isEditing && <button onClick={() => setIsEditing(true)} className="bg-indigo-50 text-primary w-10 h-10 rounded-full flex items-center justify-center hover:bg-indigo-100 transition shadow-sm"><i className="fa-solid fa-pen"></i></button>}
+                    </div>
+                    
+                    {isEditing ? (
+                        <form onSubmit={handleSave} className="space-y-4 bg-gray-50 p-6 rounded-2xl border border-gray-100 animate-[fadeIn_0.3s_ease-out]">
+                            <div><label className="text-[10px] font-bold text-gray-400 mb-1 block uppercase tracking-wider">الاسم الكامل</label><input type="text" required value={fullName} onChange={e => setFullName(e.target.value)} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-[10px] font-bold text-gray-400 mb-1 block uppercase tracking-wider">المدينة</label><input type="text" required value={city} onChange={e => setCity(e.target.value)} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700" /></div>
+                                <div><label className="text-[10px] font-bold text-gray-400 mb-1 block uppercase tracking-wider">رقم الجوال</label><input type="tel" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700" dir="ltr" /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-[10px] font-bold text-gray-400 mb-1 block uppercase tracking-wider">الصف الدراسي</label><input type="text" required value={grade} onChange={e => setGrade(e.target.value)} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700" /></div>
+                                <div><label className="text-[10px] font-bold text-gray-400 mb-1 block uppercase tracking-wider">برامج موهبة</label><select value={mawhiba} onChange={e => setMawhiba(e.target.value)} className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:border-primary text-sm font-bold text-gray-700"><option value="نعم">نعم</option><option value="لا">لا</option></select></div>
+                            </div>
+                            <div className="flex gap-3 pt-4">
+                                <button type="submit" className="flex-1 bg-primary text-white py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition">حفظ التعديلات</button>
+                                <button type="button" onClick={() => setIsEditing(false)} className="px-6 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition">إلغاء</button>
+                            </div>
+                        </form>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4"><div className="w-10 h-10 bg-white shadow-sm text-gray-400 rounded-full flex items-center justify-center"><i className="fa-solid fa-location-dot"></i></div><div><p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">المدينة</p><p className="font-black text-gray-800">{profile?.city}</p></div></div>
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4"><div className="w-10 h-10 bg-white shadow-sm text-gray-400 rounded-full flex items-center justify-center"><i className="fa-solid fa-phone"></i></div><div><p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">رقم التواصل</p><p className="font-black text-gray-800" dir="ltr">{profile?.phone}</p></div></div>
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4"><div className="w-10 h-10 bg-white shadow-sm text-gray-400 rounded-full flex items-center justify-center"><i className="fa-solid fa-graduation-cap"></i></div><div><p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">المرحلة الدراسية</p><p className="font-black text-gray-800">{profile?.grade}</p></div></div>
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4"><div className="w-10 h-10 bg-white shadow-sm text-yellow-500 rounded-full flex items-center justify-center"><i className="fa-solid fa-star"></i></div><div><p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">موهبة</p><p className="font-black text-gray-800">{profile?.mawhiba}</p></div></div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function StudentCourseView({ course, user, profile, onBack }) {
+            const [lectures, setLectures] = useState([]);
+            const [activeLecture, setActiveLecture] = useState(null);
+            const [comments, setComments] = useState([]);
+            const [newComment, setNewComment] = useState("");
+
+            useEffect(() => {
+                const q = query(collection(window.db, "courses", course.id, "lectures"), orderBy("createdAt", "asc"));
+                const unsub = onSnapshot(q, (snap) => {
+                    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    setLectures(list);
+                    if (list.length > 0 && !activeLecture) setActiveLecture(list[0]);
+                });
+                return () => unsub();
+            }, [course.id]);
+
+            useEffect(() => {
+                if (!activeLecture) return;
+                const qComm = query(collection(window.db, "courses", course.id, "lectures", activeLecture.id, "comments"), orderBy("createdAt", "asc"));
+                const unsubComm = onSnapshot(qComm, (snap) => setComments(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                return () => unsubComm();
+            }, [course.id, activeLecture]);
+
+            const handleAddComment = async (e) => {
+                e.preventDefault();
+                if (!newComment.trim()) return;
+                await addDoc(collection(window.db, "courses", course.id, "lectures", activeLecture.id, "comments"), { userId: user.uid, userName: profile?.fullName || user.email.split('@')[0], text: newComment, isAdminReply: false, createdAt: new Date().toISOString() });
+                setNewComment("");
+            };
+
+            return (
+                <div className="animate-[fadeIn_0.5s_ease-out]">
+                    <button onClick={onBack} className="mb-6 flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-full font-black text-sm hover:bg-gray-50 transition shadow-sm"><i className="fa-solid fa-arrow-right"></i> العودة للخلف</button>
+                    
+                    <div className="bg-white rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden mb-8">
+                        <div className="h-32 sm:h-48 bg-dark relative flex items-center px-8">
+                            <div className="absolute inset-0 bg-gradient-to-r from-primary/80 to-secondary/80"></div>
+                            <div className="absolute -top-24 -right-24 w-96 h-96 bg-white opacity-10 rounded-full blur-3xl"></div>
+                            <div className="relative z-10">
+                                <span className="bg-white/20 backdrop-blur text-white text-xs font-bold px-3 py-1 rounded-full inline-block mb-3 border border-white/20"><i className="fa-solid fa-book-open mr-1"></i> قاعة المحاضرات</span>
+                                <h2 className="text-3xl sm:text-4xl font-black text-white drop-shadow-md">{course.title}</h2>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col lg:flex-row gap-8">
+                        <div className="w-full lg:w-1/3 space-y-4">
+                            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 h-fit">
+                                <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2"><i className="fa-solid fa-list-ul text-primary"></i> الفهرس ({lectures.length})</h3>
+                                <div className="space-y-2">
+                                    {lectures.map((lec, idx) => (
+                                        <button key={lec.id} onClick={() => setActiveLecture(lec)} className={`w-full text-right p-4 rounded-2xl font-bold text-sm flex items-center gap-3 transition-all ${activeLecture?.id === lec.id ? 'bg-primary text-white shadow-md transform scale-[1.02]' : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-100'}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${activeLecture?.id === lec.id ? 'bg-white/20' : 'bg-white text-gray-400 shadow-sm'}`}><i className={lec.videoUrl ? "fa-solid fa-play text-xs" : "fa-solid fa-file-lines text-xs"}></i></div>
+                                            <span className="line-clamp-1">{idx + 1}. {lec.title}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="w-full lg:w-2/3">
+                            {activeLecture ? (
+                                <div className="space-y-6 animate-[fadeInUp_0.4s_ease-out]">
+                                    <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100">
+                                        <h3 className="text-2xl font-black text-gray-800 mb-6">{activeLecture.title}</h3>
+                                        
+                                        {activeLecture.videoUrl && (
+                                            <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-inner mb-6">
+                                                <iframe src={getEmbedUrl(activeLecture.videoUrl)} className="w-full h-full border-0" allowFullScreen></iframe>
+                                            </div>
+                                        )}
+                                        
+                                        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 text-gray-700 leading-loose text-sm sm:text-base font-medium">
+                                            {activeLecture.content.split('\n').map((paragraph, i) => <p key={i} className="mb-2">{paragraph}</p>)}
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100">
+                                        <h4 className="font-black text-xl text-gray-800 mb-6 flex items-center gap-2"><i className="fa-regular fa-comments text-primary"></i> مساحة النقاش التعاوني</h4>
+                                        
+                                        <div className="space-y-4 mb-8 max-h-[400px] overflow-y-auto pr-2">
+                                            {comments.length === 0 && <div className="text-center py-8 text-gray-400"><i className="fa-regular fa-comment-dots text-4xl mb-2 opacity-50"></i><p className="font-bold text-sm">كن أول من يشارك في النقاش!</p></div>}
+                                            {comments.map(c => (
+                                                <div key={c.id} className={`flex ${c.isAdminReply ? 'justify-end' : 'justify-start'}`}>
+                                                    <div className={`p-4 rounded-2xl max-w-[85%] text-sm ${c.isAdminReply ? 'bg-indigo-50 border border-indigo-100 text-gray-800 rounded-tr-sm' : 'bg-gray-50 border border-gray-100 text-gray-700 rounded-tl-sm'}`}>
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] ${c.isAdminReply ? 'bg-primary text-white' : 'bg-gray-300 text-gray-600'}`}><i className={c.isAdminReply ? "fa-solid fa-crown" : "fa-solid fa-user"}></i></div>
+                                                            <span className="font-black text-xs text-gray-900">{c.userName}</span>
+                                                        </div>
+                                                        <p className="leading-relaxed">{c.text}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <form onSubmit={handleAddComment} className="flex gap-3 relative">
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"><i className="fa-solid fa-pen"></i></div>
+                                            <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} className="flex-1 pr-12 pl-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:ring-2 focus:ring-primary focus:border-primary text-sm font-bold transition-all shadow-inner" placeholder="اكتب سؤالك أو ملاحظاتك هنا..." />
+                                            <button type="submit" disabled={!newComment.trim()} className="bg-primary text-white px-8 py-4 rounded-2xl font-black shadow-[0_4px_15px_rgba(79,70,229,0.3)] hover:bg-indigo-700 transition transform hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none">إرسال</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-full bg-white rounded-[2rem] border border-gray-100 flex flex-col items-center justify-center py-24 text-gray-400 shadow-sm">
+                                    <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner"><i className="fa-solid fa-tv"></i></div>
+                                    <p className="font-black text-xl text-gray-600 mb-2">اختر حلقة من الفهرس</p>
+                                    <p className="text-sm font-bold">لبدء المشاهدة والاستفادة من المحتوى</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
